@@ -1,4 +1,7 @@
-from pathlib import Path
+import pathlib
+
+import matplotlib
+matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -86,12 +89,12 @@ def create_animation(
 
 def save_animation_gif(
     animation: FuncAnimation,
-    output_path: str | Path,
+    output_path: str | pathlib.Path,
     fps: int,
     dpi: int,
 ):
     
-    output_path = Path(output_path)
+    output_path = pathlib.Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     writer = PillowWriter(fps=fps)
     animation.save(output_path, writer=writer, dpi=dpi)

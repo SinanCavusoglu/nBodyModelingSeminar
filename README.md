@@ -1,111 +1,187 @@
 # 3D Billionaires N-body Simulation
 
-This project turns a CSV file of billionaire data into a simple 3D particle simulation.
-Each row in the CSV becomes one moving sphere.
+This project converts a Forbes billionaire dataset into a 3D particle simulation.
+Each row is one person. The person starts at normalized `x`, `y`, `z` coordinates,
+uses `NetWorth` as mass, and uses network connections to calculate the initial velocity.
 
-The main idea is:
+## Data model
 
-- `X`, `Y`, `Z` define the starting position.
-- `NetWorth_Billions` defines the mass and visual size of the sphere.
-- `ForceBasedOnAge` defines the initial speed.
-- The initial movement direction is partly random and partly pulled toward the center.
+The joined source dataset should be here:
 
-The project saves two useful outputs:
+```text
+data/forbes_billionaires_JOINED_connections_industries_v2.csv
+```
 
-- a GIF animation
-- a CSV file that can be imported into vvvv "we can change later for vvvv!!!"
+Required input columns:
 
+```text
+ID, Name, NetWorth, x, y, z, industries, connections
+```
 
-## Setup in VS Code
+`connections` must contain base-CSV IDs separated with `/`, for example:
 
-Open the project folder in VS Code.
+```text
+4/395/87/1574
+```
 
-Create a virtual environment:
+Only IDs that exist in the dataset are used. Self-connections are removed.
+
+## Initial velocity logic
+
+For each person `i`, the preprocessing script reads the connected people `j`.
+
+For every connection:
+
+```text
+direction_ij = normalize(position_j - position_i)
+mass_j = NetWorth_j in billions
+```
+
+Then the initial velocity is calculated as:
+
+```text
+weighted_average_vector_i = sum(direction_ij * mass_j) / sum(mass_j)
+mass_strength_i = log1p(sum(mass_j)) / log1p(max_total_connected_mass)
+velocity_i = weighted_average_vector_i * CONNECTION_VELOCITY_SCALE * mass_strength_i
+```
+
+This means:
+
+- connected people define the movement direction
+- richer connected people pull the direction more strongly
+- people connected to more / richer people get stronger initial speed
+- opposite connection directions can cancel each other
+- rows with no valid connections default to zero initial velocity
+
+## Setup
+
+Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
 ```
 
-Activate it on Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-Activate it on macOS or Linux:
+macOS / Linux:
 
 ```bash
 source .venv/bin/activate
 ```
 
-Install the required modules:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Run the project:
+## Generate simulation CSVs
+
+Run this first whenever the joined dataset changes:
+
+```bash
+python scripts/generate_connection_velocity.py
+```
+
+It creates:
+
+```text
+data/forbes_billionaires_simulation_minimal_v4.csv
+data/forbes_billionaires_simulation_rich_v4.csv
+data/forbes_billionaires_edges_v4.csv
+```
+
+The minimal file is the best input for the simulation.
+The rich file keeps extra metadata for tooltips, color mapping, filtering, and later visual layers.
+The edge file is for drawing network connections in vvvv or another 3D tool.
+
+## Run the simulation
 
 ```bash
 python main.py
 ```
 
-## CSV format
-
-The CSV file should be placed here:
+Outputs are saved into:
 
 ```text
-data/BillionairePositionsMapped.csv
+output/
 ```
 
-It must include these columns:
+Main outputs:
 
 ```text
-Name, NetWorth_Billions, X, Y, Z, ForceBasedOnAge
+output/billionaires_nbody_for_vvvv.csv
+output/billionaires_edges_for_vvvv.csv
+output/billionaires_nbody_3d.gif
 ```
 
-## Main settings
+## Important settings
 
-Edit `config.py` to change the simulation.
+Edit `config.py`.
 
-Useful settings:
+For quick GIF tests:
 
 ```python
-MAX_PARTICLES = 1000
-STEPS = 5000
-SAVE_EVERY = 3
-VELOCITY_SCALE = 0.05
-G = 0.005
-DT = 0.02
-SOFTENING = 2.0
+MAX_PARTICLES = 250
+SAVE_GIF = True
+SAVE_VVVV_CSV = True
+SAVE_EDGE_CSV = True
 ```
 
-If the spheres move too fast or fly away, try:
+For full-dataset vvvv export:
 
 ```python
-VELOCITY_SCALE = 0.01
-G = 0.001
-DT = 0.01
-SOFTENING = 3.0
+MAX_PARTICLES = None
+SAVE_GIF = False
+SAVE_VVVV_CSV = True
+SAVE_EDGE_CSV = True
+STEPS = 1000
+SAVE_EVERY = 10
 ```
 
-If the GIF is too long or too large, reduce `STEPS` or increase `SAVE_EVERY`.
+The simulation is still all-to-all gravity, so it is `O(n^2)`. The physics step is
+chunked and vectorized, but a full 3400-person simulation with many frames can still
+be heavy. Barnes-Hut is the next major performance upgrade.
 
+## vvvv usage
 
-A simple vvvv setup can do this:
+Particle CSV:
 
-1. Read the CSV.
-2. Select one frame number.
-3. Filter rows where `frame` equals the selected frame.
-4. Use `x`, `y`, `z` as sphere positions.
-5. Use `mass` as sphere size.
-6. Use `speed` for color, brightness, or trails.
+```text
+frame, id, name, x, y, z, vx, vy, vz, mass, mass_normalized, speed
+```
 
-## To-do
+Edge CSV:
 
-- Add Barnes-Hut algorithm for larger particle counts.
-- Add benchmark mode to compare performance.
+```text
+source_id, target_id, source_name, target_name,
+source_x, source_y, source_z, target_x, target_y, target_z,
+dx, dy, dz, distance, source_mass_billions, target_mass_billions
+```
 
-in VVVV
-- Add optional trails for each particle.
-- Add color mapping based on industry, source, or speed.
+A simple vvvv setup can:
+
+1. read the particle CSV
+2. select a frame
+3. use `x`, `y`, `z` for point positions
+4. use `mass_normalized` for sphere size
+5. use `speed`, `industries`, or metadata from the rich CSV for color
+6. read the edge CSV and draw lines from `source_id` to `target_id`
+
+## Files to use
+
+Use this as the simulation input:
+
+```text
+forbes_billionaires_simulation_minimal_v4.csv
+```
+
+Keep this as the master metadata file:
+
+```text
+forbes_billionaires_simulation_rich_v4.csv
+```

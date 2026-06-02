@@ -1,11 +1,9 @@
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-
 import config
 from src.animation import create_animation, save_animation_gif
 from src.data_loader import load_particles_from_csv
-from src.export import export_positions_for_vvvv
+from src.export import export_edges_for_vvvv, export_positions_for_vvvv
 from src.simulation import run_simulation
 
 
@@ -17,16 +15,16 @@ def main() -> None:
     if not csv_path.exists():
         raise FileNotFoundError(
             f"CSV file not found: {csv_path}\n"
-            "Place your CSV file in the data folder or update CSV_PATH in config.py."
+            "Run scripts/generate_connection_velocity.py first "
+            "or update CSV_PATH in config.py."
         )
 
     print("Loading particles...")
-    names, initial_pos, initial_vel, mass = load_particles_from_csv(
+
+    ids, names, initial_pos, initial_vel, mass = load_particles_from_csv(
         csv_path=str(csv_path),
-        inward_bias=config.INWARD_BIAS,
-        velocity_scale=config.VELOCITY_SCALE,
+        velocity_scale=config.INITIAL_VELOCITY_SCALE,
         max_particles=config.MAX_PARTICLES,
-        random_seed=config.RANDOM_SEED,
     )
 
     print(f"Loaded particles: {len(names)}")
@@ -35,6 +33,7 @@ def main() -> None:
     print(f"Mass shape: {mass.shape}")
 
     print("Running simulation...")
+
     positions_history, velocity_history = run_simulation(
         pos=initial_pos,
         vel=initial_vel,
@@ -53,17 +52,33 @@ def main() -> None:
 
     if config.SAVE_VVVV_CSV:
         vvvv_path = output_dir / config.OUTPUT_VVVV_CSV_NAME
+
         export_positions_for_vvvv(
             positions_history=positions_history,
             velocity_history=velocity_history,
+            ids=ids,
             names=names,
             mass=mass,
             output_path=vvvv_path,
         )
-        print(f"vvvv CSV saved to: {vvvv_path}")
+
+        print(f"vvvv particle CSV saved to: {vvvv_path}")
+
+    if config.SAVE_EDGE_CSV:
+        edge_output_path = output_dir / config.OUTPUT_EDGE_CSV_NAME
+
+        saved_edge_path, edge_count = export_edges_for_vvvv(
+            edges_csv_path=config.EDGE_CSV_PATH,
+            selected_ids=ids,
+            output_path=edge_output_path,
+        )
+
+        print(f"vvvv edge CSV saved to: {saved_edge_path}")
+        print(f"Filtered edge count: {edge_count}")
 
     if config.SAVE_GIF:
         print("Creating animation...")
+
         fig, animation = create_animation(
             positions_history=positions_history,
             mass=mass,
@@ -76,13 +91,19 @@ def main() -> None:
             camera_rotation_speed=config.CAMERA_ROTATION_SPEED,
         )
 
-        if config.SAVE_GIF:
-            gif_path = output_dir / config.OUTPUT_GIF_NAME
-            print(f"Saving GIF to: {gif_path}")
-            save_animation_gif(animation, gif_path, fps=config.FPS, dpi=config.DPI)
-            print(f"GIF saved to: {gif_path}")
+        gif_path = output_dir / config.OUTPUT_GIF_NAME
 
-        
+        print(f"Saving GIF to: {gif_path}")
+
+        save_animation_gif(
+            animation,
+            gif_path,
+            fps=config.FPS,
+            dpi=config.DPI,
+        )
+
+        print(f"GIF saved to: {gif_path}")
+
     print("Done.")
 
 
