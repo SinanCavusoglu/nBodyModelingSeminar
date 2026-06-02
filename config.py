@@ -5,7 +5,7 @@ OUTPUT_DIR = "output"
 
 # CSV columns expected by the loader:
 # Name, NetWorth_Billions, X, Y, Z, ForceBasedOnAge
-MAX_PARTICLES = 1000
+MAX_PARTICLES = 50
 
 # Initial velocity settings
 # INWARD_BIAS = 1.0 means fully inward movement.
@@ -17,7 +17,7 @@ RANDOM_SEED = 42
 # Physics settings
 G = 0.005
 DT = 0.02
-STEPS = 10000
+STEPS = 500
 SOFTENING = 2.0
 SAVE_EVERY = 3
 
