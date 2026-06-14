@@ -10,13 +10,11 @@ OUTPUT_MINIMAL_PATH = Path("data/forbes_billionaires_simulation_minimal_v3.csv")
 OUTPUT_RICH_PATH = Path("data/forbes_billionaires_simulation_rich_v3.csv")
 OUTPUT_EDGES_PATH = Path("data/forbes_billionaires_edges.csv")
 
-# This scale is applied once during preprocessing.
-# In config.py, INITIAL_VELOCITY_SCALE should usually stay 1.0.
+
 CONNECTION_VELOCITY_SCALE = 0.05
 
-# Used only for billionaires without valid connections.
-# This is not the main velocity model.
-FALLBACK_VELOCITY_SCALE = 0.005
+
+FALLBACK_VELOCITY_SCALE = 0.005 # without useful connection
 
 RANDOM_SEED = 42
 
