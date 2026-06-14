@@ -52,12 +52,11 @@ Implemented features:
 - Expansion damping term `-2H(t)v`
 - Radial, angular, or no connection-based initial velocity
 - Kinetic energy, potential energy, virial ratio, radius, clustering, and collapse metrics
-- Full pipeline runner with timestamped output folders
 - Experiment runner for the four requested Sebastian comparisons
 - Parameter sweep for `epsilon`, `H0`, and expansion model
 - 3D Barnes-Hut octree solver for higher particle counts
 - Barnes-Hut theta sweep
-- CSV, JSON, GIF, optional comparison GIF outputs, and timestamped run folders
+- CSV, JSON, GIF, and optional comparison GIF outputs
 
 ---
 
@@ -66,7 +65,6 @@ Implemented features:
 ```text
 config.py
 main.py
-run_full_pipeline.py
 run_experiments.py
 requirements.txt
 
@@ -94,19 +92,6 @@ data/
 
 output/
   experiments/
-    runs/
-      <timestamp_or_custom_run_id>/
-        RUN_README.md
-        run_manifest.json
-        run_index.json
-        run_index.csv
-        <experiment_name>/
-          positions.csv
-          edges.csv
-          metrics.csv
-          summary.json
-          experiment_manifest.json
-          animation.gif
 ```
 
 ---
@@ -234,84 +219,13 @@ H(t) = H0
 
 ## 8. Running Experiments
 
-The recommended entry point is now:
-
-```bash
-python run_full_pipeline.py --preset quick
-```
-
-This runs the full project pipeline in one command:
-
-```text
-1. Check the raw Forbes CSV.
-2. Generate radial velocity simulation input.
-3. Generate angular velocity simulation input.
-4. Run the Sebastian comparison experiments.
-5. Write all outputs into a timestamped run folder.
-6. Write run-level metadata files so previous results are not overwritten.
-```
-
-### Quick smoke test
-
-Use this first to confirm that the full pipeline works:
-
-```bash
-python run_full_pipeline.py --preset quick --no-gif
-```
-
-Quick mode uses fewer particles and fewer steps. It is intended for testing, debugging, and checking that all files are generated correctly.
-
-To test quick mode with GIF generation:
-
-```bash
-python run_full_pipeline.py --preset quick --with-gif
-```
-
-### Full run
-
-Use this for real experiment outputs:
-
-```bash
-python run_full_pipeline.py --preset full
-```
-
-For a faster full run without GIF rendering:
-
-```bash
-python run_full_pipeline.py --preset full --no-gif
-```
-
-### Full run with sweeps
-
-To include parameter sweeps and Barnes-Hut theta sweeps:
-
-```bash
-python run_full_pipeline.py --preset full --include-sweep --include-theta --no-gif
-```
-
-### Custom run ID and notes
-
-Each run is automatically written to a timestamped folder. You can also provide your own run ID:
-
-```bash
-python run_full_pipeline.py --preset full --run-id seminar_test_01
-```
-
-You can add notes that will be saved into the run metadata:
-
-```bash
-python run_full_pipeline.py --preset full --run-id seminar_test_01 --notes "first full comparison for seminar"
-```
-
-### Direct experiment runner
-
-You can still run experiment sets directly:
+### Sebastian's four requested comparisons
 
 ```bash
 python run_experiments.py --set sebastian
 ```
 
-Sebastian's four requested comparisons are:
+This runs:
 
 ```text
 current_direct
@@ -320,114 +234,38 @@ softened_expansion
 softened_expansion_angular
 ```
 
-Other direct experiment commands:
+### Faster smoke test
 
 ```bash
 python run_experiments.py --set sebastian --max-particles 50 --steps 200 --save-every 5 --no-gif
+```
+
+### Barnes-Hut experiments
+
+```bash
 python run_experiments.py --set barnes-hut --max-particles 500 --no-gif
+```
+
+### Parameter sweep
+
+```bash
 python run_experiments.py --set sweep --no-gif
+```
+
+### Barnes-Hut theta sweep
+
+```bash
 python run_experiments.py --set theta --no-gif
 ```
 
 ---
 
-## 9. Timestamped Outputs and Run Tracking
+## 9. Outputs
 
-Outputs are now written into a separate run folder each time the pipeline is executed. This prevents new runs from overwriting previous results.
-
-Default structure:
+Experiment outputs are written to:
 
 ```text
-output/experiments/runs/<timestamp>_<preset>/
-```
-
-Example:
-
-```text
-output/experiments/runs/20260614_153012_quick/
-```
-
-If you provide a custom run ID:
-
-```bash
-python run_full_pipeline.py --preset full --run-id seminar_test_01
-```
-
-the output is written to:
-
-```text
-output/experiments/runs/seminar_test_01/
-```
-
-### Run-level files
-
-Each run folder contains:
-
-```text
-RUN_README.md
-run_manifest.json
-run_index.json
-run_index.csv
-```
-
-#### `RUN_README.md`
-
-A human-readable summary of the run. This is the first file to open after a run finishes.
-
-It includes:
-
-```text
-run ID
-start time
-end time
-preset
-notes
-raw CSV path
-generated input files
-experiments executed
-particle count
-step count
-save interval
-GIF setting
-output paths
-```
-
-#### `run_manifest.json`
-
-A machine-readable record of the whole run.
-
-It stores:
-
-```text
-run metadata
-command-line settings
-preset
-notes
-start and end timestamps
-input data paths
-list of experiment outputs
-```
-
-#### `run_index.json`
-
-A JSON index of all experiments executed during that run.
-
-#### `run_index.csv`
-
-A spreadsheet-friendly table summarizing all experiments in the run. This is useful for quickly checking what was run and where the outputs are.
-
-### Experiment-level files
-
-Each experiment is written into its own folder inside the run folder:
-
-```text
-output/experiments/runs/<run_id>/<experiment_name>/
-```
-
-Example:
-
-```text
-output/experiments/runs/20260614_153012_quick/softened_expansion_angular/
+output/experiments/<experiment_name>/
 ```
 
 Each experiment can produce:
@@ -436,45 +274,19 @@ Each experiment can produce:
 positions.csv
 edges.csv
 metrics.csv
-summary.json
-experiment_manifest.json
 animation.gif
+summary.json
 ```
 
-If `--no-gif` is used, `animation.gif` is not generated.
+`positions.csv` contains particle positions and speeds over time.
 
-### `positions.csv`
-
-Contains particle positions, velocities, speed, mass, and color over time.
-
-Typical columns:
-
-```text
-frame
-time
-id
-name
-x
-y
-z
-vx
-vy
-vz
-mass
-speed
-color
-```
-
-### `metrics.csv`
-
-Contains quantitative analysis values:
+`metrics.csv` contains quantitative analysis values:
 
 ```text
 frame
 time
 kinetic_energy
-potential_energy_raw
-potential_energy_effective
+potential_energy
 virial_ratio
 mean_radius
 median_radius
@@ -482,34 +294,9 @@ max_radius
 nearest_neighbor_mean
 scale_factor
 expansion_rate
-collapsed
 ```
 
-### `summary.json`
-
-Stores final experiment parameters and summary metrics.
-
-It is useful for checking:
-
-```text
-solver type
-simulation mode
-expansion settings
-softening
-H0
-Barnes-Hut theta
-particle count
-runtime
-collapse time
-final virial ratio
-final radius values
-```
-
-### `experiment_manifest.json`
-
-Stores metadata for one specific experiment, including when it was run and which configuration was used.
-
-Open this file when you want to know exactly what happened in a specific experiment folder.
+`summary.json` stores final experiment parameters and summary metrics.
 
 ---
 
@@ -607,65 +394,75 @@ theta = 0.3, 0.5, 0.8, 1.0
 
 ## 13. Recommended Workflow
 
-### Step 1: Run a quick smoke test
+For the first full test:
 
 ```bash
-python run_full_pipeline.py --preset quick --no-gif
+python scripts/generate_connection_velocity.py --mode radial
+python scripts/generate_connection_velocity.py --mode angular
+python run_experiments.py --set sebastian --max-particles 50 --steps 200 --save-every 5 --no-gif
 ```
 
-After it finishes, open:
-
-```text
-output/experiments/runs/<latest_run>/RUN_README.md
-```
-
-Check that the expected experiments completed and that each experiment folder contains `summary.json` and `metrics.csv`.
-
-### Step 2: Test quick GIF rendering
+If this works, run the full comparison:
 
 ```bash
-python run_full_pipeline.py --preset quick --with-gif
+python run_experiments.py --set sebastian
 ```
 
-This verifies that the animation pipeline works and that colors from `hue color value` are visible in the GIFs.
-
-### Step 3: Run the full Sebastian comparison
+Then test Barnes-Hut:
 
 ```bash
-python run_full_pipeline.py --preset full --no-gif
+python run_experiments.py --set barnes-hut --max-particles 500 --no-gif
 ```
-
-Use `--no-gif` first because GIF rendering is the slowest part.
-
-### Step 4: Run the full comparison with GIFs
-
-```bash
-python run_full_pipeline.py --preset full
-```
-
-### Step 5: Run sweeps if needed
-
-```bash
-python run_full_pipeline.py --preset full --include-sweep --include-theta --no-gif
-```
-
-### Step 6: Use custom run IDs for important runs
-
-For important runs, use a clear run ID and notes:
-
-```bash
-python run_full_pipeline.py --preset full --run-id seminar_final_01 --notes "final full run for Sebastian comparison"
-```
-
-This creates:
-
-```text
-output/experiments/runs/seminar_final_01/
-```
-
-and prevents confusion between multiple runs.
 
 ---
+
+
+---
+
+## Interactive HTML Visualization
+
+In addition to `animation.gif`, each experiment now also exports an interactive Plotly file:
+
+```text
+interactive_3d.html
+```
+
+It is written next to the GIF inside each experiment folder:
+
+```text
+output/experiments/runs/<run_id>/<experiment_name>/
+  animation.gif
+  interactive_3d.html
+  positions.csv
+  metrics.csv
+  summary.json
+```
+
+Open `interactive_3d.html` in a browser to rotate, zoom, pan, hover over particles, and use the frame slider. Particle colors come from the original `hue color value` column and remain visualization-only. They do not affect physics, gravity, expansion, Barnes-Hut, or metrics.
+
+The HTML export is enabled by default. To disable it:
+
+```bash
+python run_full_pipeline.py --preset quick --no-html
+```
+
+To limit HTML size for large runs:
+
+```bash
+python run_full_pipeline.py --preset full --html-max-frames 100 --html-max-particles 250
+```
+
+You can also generate an interactive HTML file later from an existing experiment folder:
+
+```bash
+python make_interactive_html.py output/experiments/runs/<run_id>/<experiment_name>
+```
+
+The default HTML is self-contained and works offline, but the file can be large. For a smaller file that loads Plotly from the internet, use:
+
+```bash
+python make_interactive_html.py output/experiments/runs/<run_id>/<experiment_name> --cdn
+```
 
 ## 14. Strategic Summary
 
@@ -691,4 +488,57 @@ If you already generated `data/generated/radial/minimal.csv` and `data/generated
 ```bash
 python scripts/generate_connection_velocity.py --mode radial
 python scripts/generate_connection_velocity.py --mode angular
+```
+
+## Timestamped run folders and metadata
+
+Every execution now creates a new timestamped run folder instead of overwriting the previous experiment outputs.
+
+Example:
+
+```bash
+python run_full_pipeline.py --preset quick --no-gif
+```
+
+Output structure:
+
+```text
+output/experiments/runs/20260614_153012_quick/
+    RUN_README.md
+    run_manifest.json
+    run_index.json
+    run_index.csv
+    current_direct/
+        summary.json
+        experiment_manifest.json
+        metrics.csv
+        positions.csv
+        edges.csv
+    softened_no_expansion/
+        ...
+    softened_expansion/
+        ...
+    softened_expansion_angular/
+        ...
+```
+
+Useful files:
+
+- `RUN_README.md`: human-readable overview of what was run and when.
+- `run_manifest.json`: metadata for the whole run, including preset, command, raw CSV, git info, and common overrides.
+- `run_index.csv`: spreadsheet-friendly list of all experiments in the run.
+- `run_index.json`: machine-readable list of all experiments in the run.
+- `experiment_manifest.json`: per-experiment metadata inside each experiment folder.
+- `summary.json`: per-experiment simulation summary and final metrics.
+
+You can also choose a custom run id:
+
+```bash
+python run_full_pipeline.py --preset full --run-id seminar_test_01 --notes "first full run for class comparison"
+```
+
+This will create:
+
+```text
+output/experiments/runs/seminar_test_01/
 ```

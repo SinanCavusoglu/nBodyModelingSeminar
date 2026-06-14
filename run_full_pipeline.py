@@ -99,6 +99,12 @@ def common_overrides_from_args(args: argparse.Namespace, run_id: str, run_root: 
         common["SAVE_EVERY"] = args.save_every
     if args.no_gif:
         common["SAVE_GIF"] = False
+    if args.no_html:
+        common["SAVE_INTERACTIVE_HTML"] = False
+    if args.html_max_frames is not None:
+        common["INTERACTIVE_HTML_MAX_FRAMES"] = args.html_max_frames
+    if args.html_max_particles is not None:
+        common["INTERACTIVE_HTML_MAX_PARTICLES"] = args.html_max_particles
     if args.H0 is not None:
         common["H0"] = args.H0
     if args.softening is not None:
@@ -140,6 +146,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--softening", type=float, default=None)
     parser.add_argument("--theta", type=float, default=None)
     parser.add_argument("--no-gif", action="store_true")
+    parser.add_argument("--no-html", action="store_true", help="Disable interactive_3d.html export.")
+    parser.add_argument("--html-max-frames", type=int, default=None)
+    parser.add_argument("--html-max-particles", type=int, default=None)
     parser.add_argument("--with-gif", action="store_true", help="Enable GIF rendering even for quick preset.")
     parser.add_argument("--include-barnes-hut", action="store_true", help="Run Barnes-Hut experiments too.")
     parser.add_argument("--include-sweep", action="store_true", help="Run epsilon/H0 parameter sweep.")
@@ -178,6 +187,9 @@ def main() -> None:
             "include_sweep": bool(args.include_sweep),
             "include_theta": bool(args.include_theta),
             "comparison_gif": bool(args.comparison_gif),
+            "interactive_html": not bool(args.no_html),
+            "html_max_frames": args.html_max_frames or config.INTERACTIVE_HTML_MAX_FRAMES,
+            "html_max_particles": args.html_max_particles or config.INTERACTIVE_HTML_MAX_PARTICLES,
             "generated_radial_csv": str(config.RADIAL_CSV_PATH),
             "generated_angular_csv": str(config.ANGULAR_CSV_PATH),
         }

@@ -19,6 +19,7 @@ from src.export import (
 )
 from src.run_context import make_run_id, now_iso, write_json
 from src.simulation import run_simulation
+from src.interactive import export_interactive_3d_html
 
 
 def _normalize_path(value: Any) -> Path:
@@ -90,9 +91,10 @@ def run_single_experiment(overrides: dict[str, Any] | None = None) -> dict[str, 
     runtime_seconds = time.perf_counter() - t0
     print(f"[main] Simulation runtime: {runtime_seconds:.3f}s")
 
+    positions_csv_path = output_dir / "positions.csv"
     if cfg.get("SAVE_VVVV_CSV", True):
         export_positions_csv(
-            output_dir / "positions.csv",
+            positions_csv_path,
             result["positions"],
             result["velocities"],
             result["times"],
@@ -138,8 +140,37 @@ def run_single_experiment(overrides: dict[str, Any] | None = None) -> dict[str, 
             "steps": cfg.get("STEPS"),
             "save_every": cfg.get("SAVE_EVERY"),
             "save_gif": cfg.get("SAVE_GIF"),
+            "save_interactive_html": cfg.get("SAVE_INTERACTIVE_HTML"),
+            "interactive_html_max_frames": cfg.get("INTERACTIVE_HTML_MAX_FRAMES"),
+            "interactive_html_max_particles": cfg.get("INTERACTIVE_HTML_MAX_PARTICLES"),
             "notes": cfg.get("RUN_NOTES"),
         })
+
+    if cfg.get("SAVE_INTERACTIVE_HTML", True):
+        try:
+            if not positions_csv_path.exists():
+                export_positions_csv(
+                    positions_csv_path,
+                    result["positions"],
+                    result["velocities"],
+                    result["times"],
+                    ids,
+                    names,
+                    masses,
+                    colors=colors,
+                )
+            html_path = output_dir / "interactive_3d.html"
+            export_interactive_3d_html(
+                positions_csv=positions_csv_path,
+                output_html=html_path,
+                title=str(cfg["EXPERIMENT_NAME"]),
+                max_frames=int(cfg.get("INTERACTIVE_HTML_MAX_FRAMES", 120)),
+                max_particles=cfg.get("INTERACTIVE_HTML_MAX_PARTICLES", 300),
+                include_plotlyjs=cfg.get("INTERACTIVE_HTML_INCLUDE_PLOTLYJS", True),
+            )
+            print(f"[main] Interactive HTML: {html_path}")
+        except Exception as exc:
+            print(f"[main] Interactive HTML skipped: {exc}")
 
     if cfg.get("SAVE_GIF", True):
         save_gif(
@@ -174,6 +205,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--save-every", type=int, default=None)
     parser.add_argument("--solver", choices=["direct", "barnes_hut"], default=None)
     parser.add_argument("--no-gif", action="store_true")
+    parser.add_argument("--no-html", action="store_true", help="Disable interactive_3d.html export.")
+    parser.add_argument("--html-max-frames", type=int, default=None)
+    parser.add_argument("--html-max-particles", type=int, default=None)
     parser.add_argument("--H0", type=float, default=None)
     parser.add_argument("--softening", type=float, default=None)
     parser.add_argument("--theta", type=float, default=None, help="Barnes-Hut theta")
@@ -195,6 +229,12 @@ def main() -> None:
         overrides["FORCE_SOLVER"] = args.solver
     if args.no_gif:
         overrides["SAVE_GIF"] = False
+    if args.no_html:
+        overrides["SAVE_INTERACTIVE_HTML"] = False
+    if args.html_max_frames is not None:
+        overrides["INTERACTIVE_HTML_MAX_FRAMES"] = args.html_max_frames
+    if args.html_max_particles is not None:
+        overrides["INTERACTIVE_HTML_MAX_PARTICLES"] = args.html_max_particles
     if args.H0 is not None:
         overrides["H0"] = args.H0
     if args.softening is not None:

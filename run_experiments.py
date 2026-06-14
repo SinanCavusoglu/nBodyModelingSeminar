@@ -130,6 +130,7 @@ def output_rows(outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "csv_path": str(cfg.get("CSV_PATH")),
                 "edge_csv_path": str(cfg.get("EDGE_CSV_PATH")),
                 "save_gif": bool(cfg.get("SAVE_GIF")),
+                "save_interactive_html": bool(cfg.get("SAVE_INTERACTIVE_HTML")),
             }
         )
     return rows
@@ -162,6 +163,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--steps", type=int, default=None)
     parser.add_argument("--save-every", type=int, default=None)
     parser.add_argument("--no-gif", action="store_true")
+    parser.add_argument("--no-html", action="store_true", help="Disable interactive_3d.html export.")
+    parser.add_argument("--html-max-frames", type=int, default=None)
+    parser.add_argument("--html-max-particles", type=int, default=None)
     parser.add_argument("--comparison-gif", action="store_true")
     parser.add_argument("--run-id", default=None, help="Optional custom run id. Defaults to timestamped id.")
     parser.add_argument("--notes", default="", help="Optional note stored in run_manifest.json.")
@@ -179,6 +183,12 @@ def main() -> None:
         common["SAVE_EVERY"] = args.save_every
     if args.no_gif:
         common["SAVE_GIF"] = False
+    if args.no_html:
+        common["SAVE_INTERACTIVE_HTML"] = False
+    if args.html_max_frames is not None:
+        common["INTERACTIVE_HTML_MAX_FRAMES"] = args.html_max_frames
+    if args.html_max_particles is not None:
+        common["INTERACTIVE_HTML_MAX_PARTICLES"] = args.html_max_particles
 
     run_root = Path(common["RUN_OUTPUT_ROOT"])
     run_manifest = base_run_manifest(
