@@ -1,279 +1,302 @@
+"""Generate radial or angular connection-based initial velocities.
+
+This script keeps connections as initial-condition information only. It does not
+create spring forces for the later simulation.
+
+Examples:
+  python scripts/generate_connection_velocity.py --mode radial
+  python scripts/generate_connection_velocity.py --mode angular
+  python scripts/generate_connection_velocity.py --mode none
+"""
+from __future__ import annotations
+
+import argparse
+import re
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
 
+import sys
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-INPUT_PATH = Path("data/forbes_billionaires_JOINED_connections_industries_v2.csv")
-
-OUTPUT_MINIMAL_PATH = Path("data/forbes_billionaires_simulation_minimal_v3.csv")
-OUTPUT_RICH_PATH = Path("data/forbes_billionaires_simulation_rich_v3.csv")
-OUTPUT_EDGES_PATH = Path("data/forbes_billionaires_edges.csv")
-
-
-CONNECTION_VELOCITY_SCALE = 0.05
+import config
 
 
-FALLBACK_VELOCITY_SCALE = 0.005 # without useful connection
+ID_CANDIDATES = ["ID", "id"]
+NAME_CANDIDATES = ["Name", "name"]
+MASS_CANDIDATES = ["NetWorth_Billions", "NetWorth", "net_worth", "networth", "mass"]
+CONNECTION_CANDIDATES = ["connections", "Connections", "connection", "connected_ids"]
+INDUSTRY_CANDIDATES = ["industries", "Industries", "industry"]
+COLOR_CANDIDATES = ["hue color value", "hue_color_value", "hue", "hue_value", "color", "Color", "colour"]
 
-RANDOM_SEED = 42
+
+def find_column(df: pd.DataFrame, candidates: list[str], required: bool = True) -> str | None:
+    lower_map = {c.lower(): c for c in df.columns}
+    for c in candidates:
+        if c in df.columns:
+            return c
+        if c.lower() in lower_map:
+            return lower_map[c.lower()]
+    if required:
+        raise ValueError(f"Missing required column. Expected one of: {candidates}")
+    return None
 
 
-def parse_connections(value) -> list[int]:
+def normalize_id(value: object) -> str:
+    """Normalize IDs so CSV values like 4.0 match connection values like 4."""
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    try:
+        number = float(text)
+        if np.isfinite(number) and number.is_integer():
+            return str(int(number))
+    except ValueError:
+        pass
+    return text
+
+
+def parse_connections(value: object) -> list[str]:
     if pd.isna(value):
         return []
+    text = str(value).strip()
+    if not text:
+        return []
+    # Original data used '/', but this also accepts comma, semicolon, and pipes.
+    parts = re.split(r"[/,;|]+", text)
+    return [normalize_id(p) for p in parts if str(p).strip()]
 
-    tokens = str(value).split("/")
-    ids = []
 
-    for token in tokens:
-        token = token.strip()
+def normalize_mass_values(values: np.ndarray) -> np.ndarray:
+    """Convert raw net worth dollars to billions when necessary.
 
-        if token == "":
+    The uploaded 20260610 CSV stores values like 701141591413.  For simulation
+    stability and comparability with the old code, convert such values to
+    billions. If the data already appears to be in billions, leave it unchanged.
+    """
+    masses = np.asarray(values, dtype=float)
+    masses = np.nan_to_num(masses, nan=1.0, posinf=1.0, neginf=1.0)
+    masses[masses <= 0] = 1.0
+    finite = masses[np.isfinite(masses)]
+    if len(finite) and float(np.nanmedian(finite)) > 1.0e6:
+        masses = masses / 1.0e9
+    masses[masses <= 0] = 1.0
+    return masses
+
+
+def normalize(v: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(v))
+    if norm <= 1.0e-12 or not np.isfinite(norm):
+        return np.zeros_like(v, dtype=float)
+    return v / norm
+
+
+def tangential_direction(r: np.ndarray) -> np.ndarray:
+    """Return a stable 3D tangential direction around a global axis."""
+    r = np.asarray(r, dtype=float)
+    axis = np.array([0.0, 0.0, 1.0])
+    tang = np.cross(axis, r)
+    if np.linalg.norm(tang) <= 1.0e-12:
+        axis = np.array([0.0, 1.0, 0.0])
+        tang = np.cross(axis, r)
+    if np.linalg.norm(tang) <= 1.0e-12:
+        axis = np.array([1.0, 0.0, 0.0])
+        tang = np.cross(axis, r)
+    return normalize(tang)
+
+
+def compute_connected_barycenters(
+    ids: np.ndarray,
+    positions: np.ndarray,
+    masses: np.ndarray,
+    connection_lists: list[list[str]],
+) -> tuple[list[np.ndarray | None], np.ndarray]:
+    id_to_index = {str(id_): i for i, id_ in enumerate(ids)}
+    barycenters: list[np.ndarray | None] = []
+    connected_mass_sums = np.zeros(len(ids), dtype=float)
+
+    for i, connected_ids in enumerate(connection_lists):
+        indices = [id_to_index[c] for c in connected_ids if c in id_to_index and id_to_index[c] != i]
+        if not indices:
+            barycenters.append(None)
+            continue
+        idx = np.asarray(indices, dtype=int)
+        m = masses[idx]
+        total_m = float(np.sum(m))
+        connected_mass_sums[i] = total_m
+        if total_m <= 0:
+            barycenters.append(np.mean(positions[idx], axis=0))
+        else:
+            barycenters.append(np.sum(positions[idx] * m[:, None], axis=0) / total_m)
+    return barycenters, connected_mass_sums
+
+
+def compute_connection_velocities(
+    ids: np.ndarray,
+    positions: np.ndarray,
+    masses: np.ndarray,
+    connection_lists: list[list[str]],
+    mode: str,
+    scale: float,
+    use_mass_strength: bool = True,
+) -> np.ndarray:
+    mode = (mode or "radial").lower()
+    velocities = np.zeros_like(positions, dtype=float)
+    barycenters, connected_mass_sums = compute_connected_barycenters(ids, positions, masses, connection_lists)
+
+    max_connected_mass = float(np.max(connected_mass_sums)) if len(connected_mass_sums) else 0.0
+
+    for i, bary in enumerate(barycenters):
+        if bary is None or mode == "none":
             continue
 
-        try:
-            ids.append(int(float(token)))
-        except ValueError:
-            continue
+        if mode == "radial":
+            direction = normalize(bary - positions[i])
+        elif mode == "angular":
+            r = positions[i] - bary
+            direction = tangential_direction(r)
+        else:
+            raise ValueError("mode must be one of: radial, angular, none")
 
-    return ids
+        strength = 1.0
+        if use_mass_strength and max_connected_mass > 0:
+            strength = np.log1p(connected_mass_sums[i]) / np.log1p(max_connected_mass)
+        velocities[i] = direction * scale * strength
+
+    return velocities
 
 
-def safe_numeric(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series, errors="coerce")
+def build_edges(ids: np.ndarray, connection_lists: list[list[str]]) -> pd.DataFrame:
+    valid = set(map(str, ids))
+    rows = []
+    for source, conns in zip(ids, connection_lists):
+        s = str(source)
+        for target in conns:
+            t = str(target)
+            if t in valid and t != s:
+                rows.append({"source": s, "target": t})
+    return pd.DataFrame(rows).drop_duplicates() if rows else pd.DataFrame(columns=["source", "target"])
 
 
-def normalize_vector(vector: np.ndarray) -> np.ndarray:
-    norm = np.linalg.norm(vector)
+def generate(
+    input_path: Path,
+    output_dir: Path,
+    mode: str,
+    scale: float,
+    use_mass_strength: bool,
+) -> dict[str, Path]:
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input CSV not found: {input_path}")
 
-    if norm == 0:
-        return vector
+    df = pd.read_csv(input_path)
+    id_col = find_column(df, ID_CANDIDATES)
+    name_col = find_column(df, NAME_CANDIDATES, required=False)
+    mass_col = find_column(df, MASS_CANDIDATES)
+    conn_col = find_column(df, CONNECTION_CANDIDATES, required=False)
+    industry_col = find_column(df, INDUSTRY_CANDIDATES, required=False)
+    color_col = find_column(df, COLOR_CANDIDATES, required=False)
 
-    return vector / norm
+    for col in ["x", "y", "z"]:
+        if col not in df.columns:
+            raise ValueError(f"Missing required position column: {col}")
+
+    working = df.copy()
+    working[id_col] = working[id_col].apply(normalize_id)
+    if name_col is None:
+        working["Name"] = working[id_col]
+        name_col = "Name"
+    if conn_col is None:
+        working["connections"] = ""
+        conn_col = "connections"
+    if industry_col is None:
+        working["industries"] = ""
+        industry_col = "industries"
+
+    positions = working[["x", "y", "z"]].to_numpy(dtype=float)
+    positions = np.nan_to_num(positions, nan=0.0, posinf=0.0, neginf=0.0)
+    mass_raw = pd.to_numeric(working[mass_col], errors="coerce").to_numpy(dtype=float)
+    masses = normalize_mass_values(mass_raw)
+    ids = working[id_col].apply(normalize_id).to_numpy()
+    connection_lists = [parse_connections(v) for v in working[conn_col]]
+
+    velocities = compute_connection_velocities(
+        ids=ids,
+        positions=positions,
+        masses=masses,
+        connection_lists=connection_lists,
+        mode=mode,
+        scale=scale,
+        use_mass_strength=use_mass_strength,
+    )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    minimal_path = output_dir / "minimal.csv"
+    rich_path = output_dir / "rich.csv"
+    edges_path = output_dir / "edges.csv"
+
+    out = pd.DataFrame(
+        {
+            "ID": ids,
+            "Name": working[name_col].fillna("").astype(str),
+            "NetWorth_Billions": masses,
+            "x": positions[:, 0],
+            "y": positions[:, 1],
+            "z": positions[:, 2],
+            "vx": velocities[:, 0],
+            "vy": velocities[:, 1],
+            "vz": velocities[:, 2],
+            "industries": working[industry_col].fillna("").astype(str),
+            "connections": working[conn_col].fillna("").astype(str),
+        }
+    )
+    if color_col is not None:
+        out["hue color value"] = working[color_col]
+    out.to_csv(minimal_path, index=False)
+
+    rich = working.copy()
+    rich["vx"] = velocities[:, 0]
+    rich["vy"] = velocities[:, 1]
+    rich["vz"] = velocities[:, 2]
+    rich.to_csv(rich_path, index=False)
+
+    edges = build_edges(ids, connection_lists)
+    edges.to_csv(edges_path, index=False)
+
+    print(f"[generate] mode={mode}")
+    print(f"[generate] minimal: {minimal_path}")
+    print(f"[generate] rich:    {rich_path}")
+    print(f"[generate] edges:   {edges_path}")
+    return {"minimal": minimal_path, "rich": rich_path, "edges": edges_path}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate connection-based initial velocity CSVs.")
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=config.RAW_CSV_PATH,
+    )
+    parser.add_argument("--mode", choices=["radial", "angular", "none"], default=config.CONNECTION_VELOCITY_MODE)
+    parser.add_argument("--scale", type=float, default=config.CONNECTION_VELOCITY_SCALE)
+    parser.add_argument("--no-mass-strength", action="store_true")
+    parser.add_argument("--output-dir", type=Path, default=None)
+    return parser.parse_args()
 
 
 def main() -> None:
-    if not INPUT_PATH.exists():
-        raise FileNotFoundError(
-            f"Input CSV not found: {INPUT_PATH}\n"
-            "Put forbes_billionaires_JOINED_connections_industries_v2.csv "
-            "into the data folder."
-        )
-
-    print("Loading joined Forbes dataset...")
-
-    df = pd.read_csv(INPUT_PATH)
-
-    required_columns = [
-        "ID",
-        "Name",
-        "NetWorth",
-        "x",
-        "y",
-        "z",
-        "connections",
-    ]
-
-    missing = [column for column in required_columns if column not in df.columns]
-
-    if missing:
-        raise ValueError(
-            "Missing required columns: "
-            + ", ".join(missing)
-        )
-
-    df["ID"] = safe_numeric(df["ID"]).astype("Int64")
-    df["NetWorth"] = safe_numeric(df["NetWorth"])
-    df["x"] = safe_numeric(df["x"])
-    df["y"] = safe_numeric(df["y"])
-    df["z"] = safe_numeric(df["z"])
-
-    df["is_valid"] = (
-        df["ID"].notna()
-        & df["Name"].notna()
-        & df["NetWorth"].notna()
-        & (df["NetWorth"] > 0)
-        & df["x"].notna()
-        & df["y"].notna()
-        & df["z"].notna()
+    args = parse_args()
+    output_dir = args.output_dir or (config.GENERATED_DATA_DIR / args.mode)
+    generate(
+        input_path=args.input,
+        output_dir=output_dir,
+        mode=args.mode,
+        scale=args.scale,
+        use_mass_strength=not args.no_mass_strength,
     )
-
-    valid_df = df[df["is_valid"]].copy()
-
-    valid_ids = set(valid_df["ID"].astype(int).tolist())
-
-    print(f"Rows: {len(df)}")
-    print(f"Valid simulation rows: {len(valid_df)}")
-    print(f"Invalid rows removed from minimal simulation file: {len(df) - len(valid_df)}")
-
-    id_to_position = {
-        int(row.ID): np.array([row.x, row.y, row.z], dtype=float)
-        for row in valid_df.itertuples(index=False)
-    }
-
-    id_to_mass = {
-        int(row.ID): float(row.NetWorth) / 1e9
-        for row in valid_df.itertuples(index=False)
-    }
-
-    id_to_name = {
-        int(row.ID): str(row.Name)
-        for row in valid_df.itertuples(index=False)
-    }
-
-    rng = np.random.default_rng(RANDOM_SEED)
-
-    clean_connections_col = []
-    connection_count_col = []
-
-    vx_col = []
-    vy_col = []
-    vz_col = []
-    velocity_strength_col = []
-
-    edge_rows = []
-
-    raw_connection_tokens = 0
-    clean_connection_tokens = 0
-    fallback_rows = 0
-
-    for row in valid_df.itertuples(index=False):
-        current_id = int(row.ID)
-        current_position = id_to_position[current_id]
-
-        raw_connections = parse_connections(getattr(row, "connections"))
-        raw_connection_tokens += len(raw_connections)
-
-        clean_connections = []
-        seen = set()
-
-        for connected_id in raw_connections:
-            if connected_id == current_id:
-                continue
-
-            if connected_id not in valid_ids:
-                continue
-
-            if connected_id in seen:
-                continue
-
-            seen.add(connected_id)
-            clean_connections.append(connected_id)
-
-        weighted_directions = []
-        weights = []
-
-        for connected_id in clean_connections:
-            connected_position = id_to_position[connected_id]
-            connected_mass = id_to_mass[connected_id]
-
-            direction = connected_position - current_position
-            distance = np.linalg.norm(direction)
-
-            if distance == 0:
-                continue
-
-            unit_direction = direction / distance
-
-            weighted_directions.append(unit_direction * connected_mass)
-            weights.append(connected_mass)
-
-            edge_rows.append(
-                {
-                    "source_id": current_id,
-                    "target_id": connected_id,
-                    "source_name": id_to_name.get(current_id, ""),
-                    "target_name": id_to_name.get(connected_id, ""),
-                    "source_mass": id_to_mass.get(current_id, 0.0),
-                    "target_mass": id_to_mass.get(connected_id, 0.0),
-                }
-            )
-
-        clean_connection_tokens += len(clean_connections)
-
-        if weighted_directions and sum(weights) > 0:
-            velocity = np.sum(weighted_directions, axis=0) / sum(weights)
-            velocity = velocity * CONNECTION_VELOCITY_SCALE
-
-        else:
-            fallback_rows += 1
-
-            # Fallback is used only during preprocessing for isolated particles.
-            # Main simulation does not use INWARD_BIAS anymore.
-            inward_direction = normalize_vector(-current_position)
-
-            random_direction = rng.normal(size=3)
-            random_direction = normalize_vector(random_direction)
-
-            velocity = 0.7 * inward_direction + 0.3 * random_direction
-            velocity = normalize_vector(velocity)
-            velocity = velocity * FALLBACK_VELOCITY_SCALE
-
-            clean_connections = []
-
-        clean_connections_col.append("/".join(str(x) for x in clean_connections))
-        connection_count_col.append(len(clean_connections))
-
-        vx_col.append(float(velocity[0]))
-        vy_col.append(float(velocity[1]))
-        vz_col.append(float(velocity[2]))
-        velocity_strength_col.append(float(np.linalg.norm(velocity)))
-
-    valid_df["connections"] = clean_connections_col
-    valid_df["connection_count"] = connection_count_col
-
-    valid_df["vx"] = vx_col
-    valid_df["vy"] = vy_col
-    valid_df["vz"] = vz_col
-    valid_df["velocity_strength"] = velocity_strength_col
-
-    valid_df["NetWorth_Billions"] = valid_df["NetWorth"] / 1e9
-
-    minimal_columns = [
-        "ID",
-        "Name",
-        "NetWorth",
-        "NetWorth_Billions",
-        "x",
-        "y",
-        "z",
-        "vx",
-        "vy",
-        "vz",
-        "velocity_strength",
-        "industries",
-        "connections",
-        "connection_count",
-    ]
-
-    existing_minimal_columns = [
-        column for column in minimal_columns if column in valid_df.columns
-    ]
-
-    minimal_df = valid_df[existing_minimal_columns].copy()
-    rich_df = valid_df.copy()
-
-    edges_df = pd.DataFrame(edge_rows)
-
-    if not edges_df.empty:
-        edges_df = edges_df.drop_duplicates(
-            subset=["source_id", "target_id"]
-        )
-
-    OUTPUT_MINIMAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    minimal_df.to_csv(OUTPUT_MINIMAL_PATH, index=False)
-    rich_df.to_csv(OUTPUT_RICH_PATH, index=False)
-    edges_df.to_csv(OUTPUT_EDGES_PATH, index=False)
-
-    print("Velocity generation complete.")
-    print(f"Raw connection tokens: {raw_connection_tokens}")
-    print(f"Clean connection tokens: {clean_connection_tokens}")
-    print(f"Rows using fallback velocity: {fallback_rows}")
-    print(f"Saved minimal simulation file: {OUTPUT_MINIMAL_PATH}")
-    print(f"Saved rich simulation file: {OUTPUT_RICH_PATH}")
-    print(f"Saved edge file: {OUTPUT_EDGES_PATH}")
 
 
 if __name__ == "__main__":

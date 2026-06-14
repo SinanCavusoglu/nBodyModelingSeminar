@@ -1,116 +1,163 @@
+"""Export helpers for simulation outputs."""
+from __future__ import annotations
+
+import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from .metrics import first_collapse_time
 
-def export_positions_for_vvvv(
-    positions_history: np.ndarray,
-    velocity_history: np.ndarray,
+
+def ensure_dir(path: str | Path) -> Path:
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def export_positions_csv(
+    path: str | Path,
+    positions: np.ndarray,
+    velocities: np.ndarray,
+    times: np.ndarray,
     ids: np.ndarray,
     names: np.ndarray,
-    mass: np.ndarray,
-    output_path: str | Path,
-):
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if positions_history.shape != velocity_history.shape:
-        raise ValueError(
-            "positions_history and velocity_history must have the same shape. "
-            f"Got {positions_history.shape} and {velocity_history.shape}."
-        )
-
-    frame_count = positions_history.shape[0]
-    particle_count = positions_history.shape[1]
-
-    if len(ids) != particle_count:
-        raise ValueError(
-            f"ids length must match particle count. "
-            f"Got {len(ids)} ids and {particle_count} particles."
-        )
-
-    if len(names) != particle_count:
-        raise ValueError(
-            f"names length must match particle count. "
-            f"Got {len(names)} names and {particle_count} particles."
-        )
-
-    if len(mass) != particle_count:
-        raise ValueError(
-            f"mass length must match particle count. "
-            f"Got {len(mass)} mass values and {particle_count} particles."
-        )
+    masses: np.ndarray,
+    colors: np.ndarray | None = None,
+) -> Path:
+    """Export frame-wise particle positions in a vvvv-friendly long CSV format."""
+    path = Path(path)
+    ensure_dir(path.parent)
 
     rows = []
-
-    for frame_idx in range(frame_count):
-        for particle_idx in range(particle_count):
-            velocity = velocity_history[frame_idx, particle_idx]
-
-            rows.append(
-                {
-                    "frame": frame_idx,
-                    "id": int(ids[particle_idx]),
-                    "name": names[particle_idx],
-                    "x": positions_history[frame_idx, particle_idx, 0],
-                    "y": positions_history[frame_idx, particle_idx, 1],
-                    "z": positions_history[frame_idx, particle_idx, 2],
-                    "mass": mass[particle_idx],
-                    "speed": float(np.linalg.norm(velocity)),
+    n_frames = len(positions)
+    n_particles = len(ids)
+    has_colors = colors is not None and len(colors) == n_particles
+    for f in range(n_frames):
+        pos_f = positions[f]
+        vel_f = velocities[f]
+        speed = np.linalg.norm(vel_f, axis=1)
+        for i in range(n_particles):
+            row = {
+                    "frame": f,
+                    "time": float(times[f]),
+                    "id": ids[i],
+                    "name": names[i],
+                    "x": float(pos_f[i, 0]),
+                    "y": float(pos_f[i, 1]),
+                    "z": float(pos_f[i, 2]),
+                    "vx": float(vel_f[i, 0]),
+                    "vy": float(vel_f[i, 1]),
+                    "vz": float(vel_f[i, 2]),
+                    "mass": float(masses[i]),
+                    "speed": float(speed[i]),
                 }
-            )
+            if has_colors:
+                value = colors[i]
+                try:
+                    row["color"] = float(value)
+                except (TypeError, ValueError):
+                    row["color"] = str(value)
+            rows.append(row)
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return path
 
-    df = pd.DataFrame(rows)
-    df.to_csv(output_path, index=False)
 
-    return output_path
+def export_metrics_csv(path: str | Path, metrics_rows: list[dict[str, Any]]) -> Path:
+    path = Path(path)
+    ensure_dir(path.parent)
+    pd.DataFrame(metrics_rows).to_csv(path, index=False)
+    return path
 
 
-def export_edges_for_vvvv(
-    edges_csv_path: str | Path,
-    selected_ids: np.ndarray,
+def export_summary_json(
+    path: str | Path,
+    config: dict[str, Any],
+    metrics_rows: list[dict[str, Any]],
+    n_particles: int,
+) -> Path:
+    path = Path(path)
+    ensure_dir(path.parent)
+
+    final_metrics = metrics_rows[-1] if metrics_rows else {}
+    summary = {
+        "run_id": config.get("RUN_ID"),
+        "run_started_at": config.get("RUN_STARTED_AT"),
+        "experiment_started_at": config.get("experiment_started_at"),
+        "experiment_finished_at": config.get("experiment_finished_at"),
+        "experiment": str(config.get("EXPERIMENT_NAME")),
+        "simulation_mode": str(config.get("SIMULATION_MODE")),
+        "force_solver": str(config.get("FORCE_SOLVER")),
+        "output_dir": str(config.get("OUTPUT_DIR")),
+        "csv_path": str(config.get("CSV_PATH")),
+        "edge_csv_path": str(config.get("EDGE_CSV_PATH")),
+        "runtime_seconds": config.get("runtime_seconds"),
+        "particles": int(n_particles),
+        "G": float(config.get("G")),
+        "dt": float(config.get("DT")),
+        "steps": int(config.get("STEPS")),
+        "save_every": int(config.get("SAVE_EVERY")),
+        "softening": float(config.get("SOFTENING")),
+        "use_expansion": bool(config.get("USE_EXPANSION")),
+        "expansion_model": str(config.get("EXPANSION_MODEL")),
+        "H0": float(config.get("H0")),
+        "connection_velocity_mode": str(config.get("CONNECTION_VELOCITY_MODE")),
+        "barnes_hut_theta": float(config.get("BARNES_HUT_THETA")),
+        "collapse_time": first_collapse_time(metrics_rows),
+        "final_metrics": final_metrics,
+    }
+
+    # Convert Path values to strings.
+    for key, value in list(summary.items()):
+        if isinstance(value, Path):
+            summary[key] = str(value)
+
+    path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def export_edges_csv(
+    source_edge_csv: str | Path,
     output_path: str | Path,
-):
-    edges_csv_path = Path(edges_csv_path)
+    selected_ids: np.ndarray,
+) -> Path | None:
+    """Filter an edge CSV to the selected particle IDs.
+
+    Supports common edge column names. If the source edge file does not exist,
+    this function returns None instead of failing the whole experiment.
+    """
+    source_edge_csv = Path(source_edge_csv)
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not source_edge_csv.exists():
+        print(f"[export] Edge CSV not found, skipping: {source_edge_csv}")
+        return None
 
-    if not edges_csv_path.exists():
-        raise FileNotFoundError(
-            f"Edge CSV file not found: {edges_csv_path}\n"
-            "Run scripts/generate_connection_velocity.py first."
-        )
+    df = pd.read_csv(source_edge_csv)
+    selected = set(map(str, selected_ids))
 
-    edges_df = pd.read_csv(edges_csv_path)
+    candidate_pairs = [
+        ("source", "target"),
+        ("source_id", "target_id"),
+        ("from", "to"),
+        ("id1", "id2"),
+        ("ID1", "ID2"),
+    ]
+    pair = None
+    for a, b in candidate_pairs:
+        if a in df.columns and b in df.columns:
+            pair = (a, b)
+            break
 
-    required_columns = ["source_id", "target_id"]
-    missing = [column for column in required_columns if column not in edges_df.columns]
+    if pair is None:
+        print("[export] Could not identify edge columns; copying edge file unchanged.")
+        ensure_dir(output_path.parent)
+        df.to_csv(output_path, index=False)
+        return output_path
 
-    if missing:
-        raise ValueError(
-            "The edge CSV file is missing the following required columns: "
-            + ", ".join(missing)
-        )
-
-    selected_id_set = set(int(x) for x in selected_ids)
-
-    edges_df["source_id"] = pd.to_numeric(edges_df["source_id"], errors="coerce")
-    edges_df["target_id"] = pd.to_numeric(edges_df["target_id"], errors="coerce")
-
-    edges_df = edges_df.dropna(subset=["source_id", "target_id"]).copy()
-    edges_df["source_id"] = edges_df["source_id"].astype(int)
-    edges_df["target_id"] = edges_df["target_id"].astype(int)
-
-    filtered_edges_df = edges_df[
-        edges_df["source_id"].isin(selected_id_set)
-        & edges_df["target_id"].isin(selected_id_set)
-    ].copy()
-
-    filtered_edges_df = filtered_edges_df.drop_duplicates(
-        subset=["source_id", "target_id"]
-    )
-
-    filtered_edges_df.to_csv(output_path, index=False)
-
-    return output_path, len(filtered_edges_df)
+    a, b = pair
+    mask = df[a].astype(str).isin(selected) & df[b].astype(str).isin(selected)
+    ensure_dir(output_path.parent)
+    df.loc[mask].to_csv(output_path, index=False)
+    return output_path
