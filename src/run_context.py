@@ -115,8 +115,8 @@ def write_run_readme(path: str | Path, run_manifest: dict[str, Any], rows: list[
     lines.append("## Experiments")
     lines.append("")
     if rows:
-        lines.append("| Experiment | Solver | Expansion | Velocity | Particles | Steps | Softening | H0 | Theta | Runtime (s) | Output |")
-        lines.append("|---|---|---:|---|---:|---:|---:|---:|---:|---:|---|")
+        lines.append("| Experiment | Solver | Expansion | Velocity | Scale | Particles | Steps | DT | Softening | H0 | Theta | Runtime (s) | Output |")
+        lines.append("|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
         for row in rows:
             output_dir = str(row.get("output_dir", ""))
             rel_output = output_dir
@@ -128,8 +128,10 @@ def write_run_readme(path: str | Path, run_manifest: dict[str, Any], rows: list[
                         str(row.get("force_solver", "")),
                         str(row.get("use_expansion", "")),
                         str(row.get("connection_velocity_mode", "")),
+                        str(row.get("connection_velocity_scale", "")),
                         str(row.get("particles", "")),
                         str(row.get("steps", "")),
+                        str(row.get("dt", "")),
                         str(row.get("softening", "")),
                         str(row.get("H0", "")),
                         str(row.get("theta", "")),
@@ -147,7 +149,10 @@ def write_run_readme(path: str | Path, run_manifest: dict[str, Any], rows: list[
     lines.append("- `run_manifest.json`: metadata for the whole run")
     lines.append("- `run_index.json`: machine-readable experiment index")
     lines.append("- `run_index.csv`: spreadsheet-friendly experiment index")
-    lines.append("- each experiment folder contains `summary.json`, `metrics.csv`, `positions.csv`, and optionally `animation.gif`")
+    lines.append("- `oscillation_summary.csv`: created automatically for oscillation runs; ranks experiments by stability score")
+    lines.append("- `OSCILLATION_ANALYSIS.md`: human-readable explanation of oscillation-analysis results")
+    lines.append("- `plots/`: created automatically for oscillation runs; includes mean-radius, kinetic-energy, virial-ratio, and nearest-neighbor comparison plots")
+    lines.append("- each experiment folder contains `summary.json`, `metrics.csv`, `positions.csv`, `interactive_3d.html`, and optionally `animation.gif`")
     lines.append("")
 
     path.write_text("\n".join(lines), encoding="utf-8")

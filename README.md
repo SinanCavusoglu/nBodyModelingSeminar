@@ -542,3 +542,117 @@ This will create:
 ```text
 output/experiments/runs/seminar_test_01/
 ```
+
+---
+
+## Oscillation Reduction Experiments
+
+Sebastian suggested that if the simulation still shows a strong initial oscillation, we should test very small initial velocities or no initial velocity at all. The code now includes a dedicated oscillation experiment set and automatic data-analysis outputs.
+
+### Run the oscillation experiment set
+
+Fast analysis run without GIF rendering:
+
+```bash
+python run_full_pipeline.py --preset oscillation --no-gif --html-max-particles 200 --html-max-frames 80
+```
+
+With GIF rendering:
+
+```bash
+python run_full_pipeline.py --preset oscillation --with-gif --html-max-particles 300 --html-max-frames 120
+```
+
+You can also run it through `run_experiments.py`:
+
+```bash
+python run_experiments.py --set oscillation --max-particles 100 --steps 1000 --save-every 5 --no-gif
+```
+
+### What this experiment set tests
+
+The oscillation set compares:
+
+| Group | Purpose |
+|---|---|
+| Velocity source test | radial vs. angular vs. no initial velocity |
+| Velocity scale test | normal scale `0.05` vs. small scale `0.01` |
+| Softening test | `epsilon = 2, 5, 8, 10` |
+| Expansion test | `H0 = 0, 0.01, 0.027, 0.05` |
+| Economic growth test | `H0 = 0.027`, based on Sebastian's 2.7% global growth suggestion |
+| Timestep test | `DT = 0.02, 0.01, 0.005` |
+| Barnes-Hut candidate | best candidate with the Barnes-Hut solver |
+
+### Generated velocity input folders
+
+The oscillation run automatically creates additional input CSVs:
+
+```text
+data/generated/radial_scale_0p01/minimal.csv
+data/generated/angular_scale_0p01/minimal.csv
+data/generated/none/minimal.csv
+```
+
+The normal-scale radial/angular files are still kept at:
+
+```text
+data/generated/radial/minimal.csv
+data/generated/angular/minimal.csv
+```
+
+You can manually generate scaled inputs as well:
+
+```bash
+python scripts/generate_connection_velocity.py --mode angular --velocity-scale 0.01
+python scripts/generate_connection_velocity.py --mode radial --velocity-scale 0.01
+python scripts/generate_connection_velocity.py --mode none
+```
+
+### Oscillation analysis outputs
+
+Every oscillation run creates these run-level files:
+
+```text
+output/experiments/runs/<run_id>/oscillation_summary.csv
+output/experiments/runs/<run_id>/oscillation_summary.json
+output/experiments/runs/<run_id>/OSCILLATION_ANALYSIS.md
+output/experiments/runs/<run_id>/plots/oscillation_mean_radius.png
+output/experiments/runs/<run_id>/plots/oscillation_kinetic_energy.png
+output/experiments/runs/<run_id>/plots/oscillation_virial_ratio.png
+output/experiments/runs/<run_id>/plots/oscillation_nearest_neighbor.png
+```
+
+### How to read `oscillation_summary.csv`
+
+The most important columns are:
+
+| Column | Meaning |
+|---|---|
+| `rank` | automatic ranking; lower rank is better |
+| `stability_score` | combined score; lower means smoother/more stable behavior |
+| `radius_oscillation_score` | how strongly `mean_radius` zigzags over time |
+| `kinetic_spike_score` | how strong kinetic-energy spikes are |
+| `virial_spike_score` | how strongly the virial ratio spikes |
+| `collapse_time` | first collapse time; empty/null means no collapse detected |
+| `collapse_penalty` | penalty for early collapse |
+| `connection_velocity_mode` | radial, angular, or none |
+| `connection_velocity_scale` | initial velocity multiplier |
+| `softening` | gravitational softening length |
+| `H0` | expansion/economic-growth parameter |
+| `dt` | timestep |
+
+Lower `stability_score` is better. The score is not meant to be a perfect physical law; it is a practical ranking tool for detecting which setup reduces the strong oscillation most clearly.
+
+### Recommended first interpretation
+
+Start by comparing:
+
+```text
+osc_radial_0p05
+osc_angular_0p05
+osc_radial_0p01
+osc_angular_0p01
+osc_none
+```
+
+If `osc_none` or `osc_angular_0p01` is much smoother, then the strong oscillation is strongly influenced by the initial velocity field. If softening or `H0 = 0.027` improves the score further, then close-range gravitational collapse and expansion damping are also important.

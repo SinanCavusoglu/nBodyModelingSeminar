@@ -17,6 +17,7 @@ Examples:
   python run_full_pipeline.py --preset quick
   python run_full_pipeline.py --preset full
   python run_full_pipeline.py --preset full --include-sweep --include-theta --no-gif
+  python run_full_pipeline.py --preset oscillation --no-gif
 """
 from __future__ import annotations
 
@@ -31,7 +32,10 @@ from scripts.generate_connection_velocity import generate
 from run_experiments import (
     BARNES_HUT_EXPERIMENTS,
     SEBASTIAN_EXPERIMENTS,
+    OSCILLATION_GENERATED_INPUTS,
+    ensure_velocity_input,
     run_named_experiments,
+    run_oscillation_experiments,
     run_parameter_sweep,
     run_theta_sweep,
     save_run_index,
@@ -62,8 +66,8 @@ def ensure_raw_csv(raw_csv: Path) -> Path:
     return target
 
 
-def generate_velocity_inputs(raw_csv: Path) -> None:
-    """Create generated radial/angular simulation input CSVs."""
+def generate_velocity_inputs(raw_csv: Path, include_oscillation: bool = False) -> None:
+    """Create generated simulation input CSVs."""
     print("[pipeline] Generating radial velocity input...")
     generate(
         input_path=raw_csv,
@@ -81,6 +85,11 @@ def generate_velocity_inputs(raw_csv: Path) -> None:
         scale=float(config.CONNECTION_VELOCITY_SCALE),
         use_mass_strength=bool(config.USE_CONNECTION_MASS_STRENGTH),
     )
+
+    if include_oscillation:
+        print("[pipeline] Generating oscillation velocity inputs...")
+        for mode, scale in OSCILLATION_GENERATED_INPUTS:
+            ensure_velocity_input(mode, scale, raw_csv=raw_csv)
 
 
 def common_overrides_from_args(args: argparse.Namespace, run_id: str, run_root: Path) -> dict[str, Any]:
@@ -115,7 +124,7 @@ def common_overrides_from_args(args: argparse.Namespace, run_id: str, run_root: 
 
 
 def apply_preset_defaults(args: argparse.Namespace) -> None:
-    """Set safe defaults for quick/full presets unless explicitly provided."""
+    """Set safe defaults for quick/full/oscillation presets unless explicitly provided."""
     if args.preset == "quick":
         if args.max_particles is None:
             args.max_particles = 50
@@ -133,11 +142,20 @@ def apply_preset_defaults(args: argparse.Namespace) -> None:
             args.steps = config.STEPS
         if args.save_every is None:
             args.save_every = config.SAVE_EVERY
+    elif args.preset == "oscillation":
+        if args.max_particles is None:
+            args.max_particles = 100
+        if args.steps is None:
+            args.steps = 1000
+        if args.save_every is None:
+            args.save_every = 5
+        if not args.with_gif:
+            args.no_gif = True
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the full N-body roadmap pipeline from code.")
-    parser.add_argument("--preset", choices=["quick", "full"], default="quick")
+    parser.add_argument("--preset", choices=["quick", "full", "oscillation"], default="quick")
     parser.add_argument("--raw-csv", type=Path, default=config.RAW_CSV_PATH)
     parser.add_argument("--max-particles", type=int, default=None)
     parser.add_argument("--steps", type=int, default=None)
@@ -153,6 +171,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--include-barnes-hut", action="store_true", help="Run Barnes-Hut experiments too.")
     parser.add_argument("--include-sweep", action="store_true", help="Run epsilon/H0 parameter sweep.")
     parser.add_argument("--include-theta", action="store_true", help="Run Barnes-Hut theta sweep.")
+    parser.add_argument("--include-oscillation", action="store_true", help="Run oscillation-reduction experiments and analysis.")
     parser.add_argument("--comparison-gif", action="store_true", help="Create a four-panel comparison GIF.")
     parser.add_argument("--run-id", default=None, help="Optional custom run id. Defaults to timestamped id.")
     parser.add_argument("--notes", default="", help="Optional note stored in run_manifest.json and RUN_README.md.")
@@ -168,7 +187,8 @@ def main() -> None:
     run_root.mkdir(parents=True, exist_ok=True)
 
     raw_csv = ensure_raw_csv(args.raw_csv)
-    generate_velocity_inputs(raw_csv)
+    include_oscillation_inputs = bool(args.include_oscillation or args.preset == "oscillation")
+    generate_velocity_inputs(raw_csv, include_oscillation=include_oscillation_inputs)
 
     common = common_overrides_from_args(args, run_id, run_root)
     run_manifest = base_run_manifest(
@@ -186,6 +206,7 @@ def main() -> None:
             "include_barnes_hut": bool(args.include_barnes_hut or args.preset == "full"),
             "include_sweep": bool(args.include_sweep),
             "include_theta": bool(args.include_theta),
+            "include_oscillation": bool(args.include_oscillation or args.preset == "oscillation"),
             "comparison_gif": bool(args.comparison_gif),
             "interactive_html": not bool(args.no_html),
             "html_max_frames": args.html_max_frames or config.INTERACTIVE_HTML_MAX_FRAMES,
@@ -198,8 +219,9 @@ def main() -> None:
 
     outputs: list[dict[str, Any]] = []
 
-    print("[pipeline] Running Sebastian comparison experiments...")
-    outputs.extend(run_named_experiments(SEBASTIAN_EXPERIMENTS, common))
+    if args.preset != "oscillation":
+        print("[pipeline] Running Sebastian comparison experiments...")
+        outputs.extend(run_named_experiments(SEBASTIAN_EXPERIMENTS, common))
 
     if args.include_barnes_hut or args.preset == "full":
         print("[pipeline] Running Barnes-Hut experiments...")
@@ -212,6 +234,10 @@ def main() -> None:
     if args.include_theta:
         print("[pipeline] Running Barnes-Hut theta sweep...")
         outputs.extend(run_theta_sweep(common))
+
+    if args.include_oscillation or args.preset == "oscillation":
+        print("[pipeline] Running oscillation-reduction experiments...")
+        outputs.extend(run_oscillation_experiments(common))
 
     save_run_index(outputs, run_root / "run_index.json", run_manifest)
 

@@ -7,6 +7,7 @@ Examples:
   python scripts/generate_connection_velocity.py --mode radial
   python scripts/generate_connection_velocity.py --mode angular
   python scripts/generate_connection_velocity.py --mode none
+  python scripts/generate_connection_velocity.py --mode angular --velocity-scale 0.01
 """
 from __future__ import annotations
 
@@ -45,6 +46,31 @@ def find_column(df: pd.DataFrame, candidates: list[str], required: bool = True) 
         raise ValueError(f"Missing required column. Expected one of: {candidates}")
     return None
 
+
+
+def scale_label(scale: float) -> str:
+    """Filesystem-safe label for velocity scale values."""
+    return str(float(scale)).replace(".", "p").replace("-", "m")
+
+
+def default_output_dir(mode: str, scale: float, generated_root: Path) -> Path:
+    """Return the default output directory for a velocity mode/scale pair.
+
+    Backwards compatibility:
+      radial scale 0.05  -> data/generated/radial/
+      angular scale 0.05 -> data/generated/angular/
+      none              -> data/generated/none/
+
+    Oscillation experiments get scale-specific folders:
+      radial scale 0.01  -> data/generated/radial_scale_0p01/
+      angular scale 0.005 -> data/generated/angular_scale_0p005/
+    """
+    mode = (mode or "radial").lower()
+    if mode == "none" or abs(float(scale)) <= 1e-15:
+        return generated_root / "none"
+    if mode in {"radial", "angular"} and abs(float(scale) - float(config.CONNECTION_VELOCITY_SCALE)) <= 1e-15:
+        return generated_root / mode
+    return generated_root / f"{mode}_scale_{scale_label(scale)}"
 
 def normalize_id(value: object) -> str:
     """Normalize IDs so CSV values like 4.0 match connection values like 4."""
@@ -251,6 +277,8 @@ def generate(
             "vz": velocities[:, 2],
             "industries": working[industry_col].fillna("").astype(str),
             "connections": working[conn_col].fillna("").astype(str),
+            "velocity_mode": mode,
+            "velocity_scale": float(scale),
         }
     )
     if color_col is not None:
@@ -261,12 +289,16 @@ def generate(
     rich["vx"] = velocities[:, 0]
     rich["vy"] = velocities[:, 1]
     rich["vz"] = velocities[:, 2]
+    rich["velocity_mode"] = mode
+    rich["velocity_scale"] = float(scale)
     rich.to_csv(rich_path, index=False)
 
     edges = build_edges(ids, connection_lists)
     edges.to_csv(edges_path, index=False)
 
-    print(f"[generate] mode={mode}")
+    speeds = np.linalg.norm(velocities, axis=1)
+    print(f"[generate] mode={mode} scale={scale}")
+    print(f"[generate] speed mean={float(np.mean(speeds)):.6g} max={float(np.max(speeds)):.6g}")
     print(f"[generate] minimal: {minimal_path}")
     print(f"[generate] rich:    {rich_path}")
     print(f"[generate] edges:   {edges_path}")
@@ -281,7 +313,8 @@ def parse_args() -> argparse.Namespace:
         default=config.RAW_CSV_PATH,
     )
     parser.add_argument("--mode", choices=["radial", "angular", "none"], default=config.CONNECTION_VELOCITY_MODE)
-    parser.add_argument("--scale", type=float, default=config.CONNECTION_VELOCITY_SCALE)
+    parser.add_argument("--scale", type=float, default=None, help="Initial velocity scale multiplier.")
+    parser.add_argument("--velocity-scale", type=float, default=None, help="Alias for --scale.")
     parser.add_argument("--no-mass-strength", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=None)
     return parser.parse_args()
@@ -289,12 +322,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    output_dir = args.output_dir or (config.GENERATED_DATA_DIR / args.mode)
+    scale = args.velocity_scale if args.velocity_scale is not None else args.scale
+    if scale is None:
+        scale = config.CONNECTION_VELOCITY_SCALE
+    output_dir = args.output_dir or default_output_dir(args.mode, float(scale), config.GENERATED_DATA_DIR)
     generate(
         input_path=args.input,
         output_dir=output_dir,
         mode=args.mode,
-        scale=args.scale,
+        scale=float(scale),
         use_mass_strength=not args.no_mass_strength,
     )
 
