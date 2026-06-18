@@ -42,7 +42,7 @@ EDGE_CSV_PATH = RADIAL_EDGE_CSV_PATH
 # -----------------------------------------------------------------------------
 # Data / run size
 # -----------------------------------------------------------------------------
-MAX_PARTICLES = 4000
+MAX_PARTICLES = 100
 RANDOM_SEED = 42
 
 # -----------------------------------------------------------------------------
@@ -71,7 +71,7 @@ EXPERIMENT_NAME = SIMULATION_MODE
 # Force solver:
 #   direct      -> O(N^2), exact pairwise direct summation
 #   barnes_hut -> 3D octree approximation, useful for higher particle counts
-FORCE_SOLVER = "direct"
+FORCE_SOLVER = "barnes_hut"
 
 # Expansion / comoving-coordinate model
 USE_EXPANSION = False
@@ -85,9 +85,15 @@ CONNECTION_VELOCITY_SCALE = 0.05
 USE_CONNECTION_MASS_STRENGTH = True
 
 # Barnes-Hut parameters
+# The optimized path uses a flat-array octree and optional Numba JIT traversal.
+# For small N, the vectorized direct solver is often faster and exact, so Barnes-Hut
+# uses a direct fallback below BARNES_HUT_DIRECT_FALLBACK_N by default.
 BARNES_HUT_THETA = 0.5
-BARNES_HUT_MAX_PARTICLES_PER_LEAF = 1
+BARNES_HUT_MAX_PARTICLES_PER_LEAF = 8
 BARNES_HUT_MAX_DEPTH = 32
+BARNES_HUT_IMPLEMENTATION = "fast"  # fast, legacy
+BARNES_HUT_USE_NUMBA = True
+BARNES_HUT_DIRECT_FALLBACK_N = 512
 
 # -----------------------------------------------------------------------------
 # Outputs
@@ -203,6 +209,8 @@ def as_dict() -> dict:
         "CONNECTION_VELOCITY_MODE", "CONNECTION_VELOCITY_SCALE",
         "USE_CONNECTION_MASS_STRENGTH", "BARNES_HUT_THETA",
         "BARNES_HUT_MAX_PARTICLES_PER_LEAF", "BARNES_HUT_MAX_DEPTH",
+        "BARNES_HUT_IMPLEMENTATION", "BARNES_HUT_USE_NUMBA",
+        "BARNES_HUT_DIRECT_FALLBACK_N",
         "SAVE_GIF", "SAVE_VVVV_CSV", "SAVE_EDGE_CSV", "SAVE_METRICS",
         "SAVE_SUMMARY", "SAVE_INTERACTIVE_HTML", "INTERACTIVE_HTML_MAX_FRAMES",
         "INTERACTIVE_HTML_MAX_PARTICLES", "INTERACTIVE_HTML_INCLUDE_PLOTLYJS",

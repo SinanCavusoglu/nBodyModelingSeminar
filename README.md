@@ -656,3 +656,40 @@ osc_none
 ```
 
 If `osc_none` or `osc_angular_0p01` is much smoother, then the strong oscillation is strongly influenced by the initial velocity field. If softening or `H0 = 0.027` improves the score further, then close-range gravitational collapse and expansion damping are also important.
+
+---
+
+## Barnes-Hut optimization update
+
+The Barnes-Hut solver now has an optimized `fast` implementation:
+
+- flat-array octree instead of recursive dataclass nodes
+- iterative tree traversal
+- optional Numba JIT acceleration
+- larger leaf size by default (`BARNES_HUT_MAX_PARTICLES_PER_LEAF = 8`)
+- direct-solver fallback for small N (`BARNES_HUT_DIRECT_FALLBACK_N = 512`)
+
+This fallback is intentional. For small particle counts, the vectorized direct solver is exact and faster than tree construction/traversal. Barnes-Hut is kept for larger particle counts where the direct `O(N^2)` solver becomes the bottleneck.
+
+Important config values:
+
+```python
+BARNES_HUT_IMPLEMENTATION = "fast"
+BARNES_HUT_USE_NUMBA = True
+BARNES_HUT_MAX_PARTICLES_PER_LEAF = 8
+BARNES_HUT_DIRECT_FALLBACK_N = 512
+```
+
+Benchmark direct vs Barnes-Hut with:
+
+```bash
+python benchmark_solvers.py --particles 100 300 500 1000 3000 --theta 0.3 0.5 0.8 1.0
+```
+
+Outputs:
+
+```text
+output/experiments/benchmarks/barnes_hut_benchmark.csv
+output/experiments/benchmarks/barnes_hut_time.png
+output/experiments/benchmarks/barnes_hut_error.png
+```

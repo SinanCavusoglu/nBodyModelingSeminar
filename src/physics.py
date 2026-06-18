@@ -41,14 +41,41 @@ def compute_gravity_accelerations(
     softening: float,
     force_solver: str = "direct",
     barnes_hut_theta: float = 0.5,
-    barnes_hut_max_particles_per_leaf: int = 1,
+    barnes_hut_max_particles_per_leaf: int = 8,
     barnes_hut_max_depth: int = 32,
+    barnes_hut_implementation: str = "fast",
+    barnes_hut_use_numba: bool = True,
+    barnes_hut_direct_fallback_n: int = 512,
 ) -> np.ndarray:
-    """Compute gravity acceleration using either direct or Barnes-Hut solver."""
+    """Compute gravity acceleration using either direct or Barnes-Hut solver.
+
+    Notes
+    -----
+    The optimized Barnes-Hut path has an adaptive direct fallback for small N.
+    This is deliberate: the vectorized direct solver is exact and faster for
+    small particle counts, while Barnes-Hut is intended for larger N.
+    """
     solver = (force_solver or "direct").lower()
     if solver == "direct":
         return compute_direct_softened_accelerations(pos, mass, G, softening)
     if solver in {"barnes_hut", "barnes-hut", "bh"}:
+        implementation = (barnes_hut_implementation or "fast").lower()
+        if implementation in {"fast", "flat", "numba", "auto"}:
+            from .barnes_hut_fast import compute_barnes_hut_fast_accelerations
+
+            return compute_barnes_hut_fast_accelerations(
+                pos,
+                mass,
+                G=G,
+                softening=softening,
+                theta=barnes_hut_theta,
+                max_particles_per_leaf=barnes_hut_max_particles_per_leaf,
+                max_depth=barnes_hut_max_depth,
+                use_numba=barnes_hut_use_numba,
+                direct_fallback_n=barnes_hut_direct_fallback_n,
+            )
+
+        # Legacy implementation kept for correctness/debug comparisons.
         from .barnes_hut import compute_barnes_hut_accelerations
 
         return compute_barnes_hut_accelerations(
@@ -100,8 +127,11 @@ def compute_accelerations(
     H0: float = 0.01,
     expansion_model: str = "linear",
     barnes_hut_theta: float = 0.5,
-    barnes_hut_max_particles_per_leaf: int = 1,
+    barnes_hut_max_particles_per_leaf: int = 8,
     barnes_hut_max_depth: int = 32,
+    barnes_hut_implementation: str = "fast",
+    barnes_hut_use_numba: bool = True,
+    barnes_hut_direct_fallback_n: int = 512,
 ) -> np.ndarray:
     """Compute total acceleration for the selected model."""
     gravity_acc = compute_gravity_accelerations(
@@ -113,6 +143,9 @@ def compute_accelerations(
         barnes_hut_theta=barnes_hut_theta,
         barnes_hut_max_particles_per_leaf=barnes_hut_max_particles_per_leaf,
         barnes_hut_max_depth=barnes_hut_max_depth,
+        barnes_hut_implementation=barnes_hut_implementation,
+        barnes_hut_use_numba=barnes_hut_use_numba,
+        barnes_hut_direct_fallback_n=barnes_hut_direct_fallback_n,
     )
     acc, _, _ = apply_expansion_terms(
         gravity_acc,

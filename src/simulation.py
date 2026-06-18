@@ -38,8 +38,11 @@ def run_simulation(
     H0 = float(_cfg(config, "H0", 0.01))
 
     bh_theta = float(_cfg(config, "BARNES_HUT_THETA", 0.5))
-    bh_leaf = int(_cfg(config, "BARNES_HUT_MAX_PARTICLES_PER_LEAF", 1))
+    bh_leaf = int(_cfg(config, "BARNES_HUT_MAX_PARTICLES_PER_LEAF", 8))
     bh_depth = int(_cfg(config, "BARNES_HUT_MAX_DEPTH", 32))
+    bh_impl = str(_cfg(config, "BARNES_HUT_IMPLEMENTATION", "fast"))
+    bh_use_numba = bool(_cfg(config, "BARNES_HUT_USE_NUMBA", True))
+    bh_fallback_n = int(_cfg(config, "BARNES_HUT_DIRECT_FALLBACK_N", 512))
 
     save_metrics = bool(_cfg(config, "SAVE_METRICS", True))
     exact_potential_max_n = int(_cfg(config, "METRICS_EXACT_POTENTIAL_MAX_N", 700))
@@ -98,6 +101,9 @@ def run_simulation(
             barnes_hut_theta=bh_theta,
             barnes_hut_max_particles_per_leaf=bh_leaf,
             barnes_hut_max_depth=bh_depth,
+            barnes_hut_implementation=bh_impl,
+            barnes_hut_use_numba=bh_use_numba,
+            barnes_hut_direct_fallback_n=bh_fallback_n,
         )
 
         # Velocity-Verlet style update. Because expansion damping depends on
@@ -120,6 +126,9 @@ def run_simulation(
             barnes_hut_theta=bh_theta,
             barnes_hut_max_particles_per_leaf=bh_leaf,
             barnes_hut_max_depth=bh_depth,
+            barnes_hut_implementation=bh_impl,
+            barnes_hut_use_numba=bh_use_numba,
+            barnes_hut_direct_fallback_n=bh_fallback_n,
         )
         vel = vel_half + 0.5 * dt * acc_new
 
