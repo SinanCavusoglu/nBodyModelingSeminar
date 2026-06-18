@@ -111,7 +111,7 @@ def base_expansion_experiment(
     softening: float = 2.0,
     H0: float = 0.01,
     dt: float | None = None,
-    solver: str = "direct",
+    solver: str = "barnes_hut",
 ) -> dict[str, Any]:
     csv_path, edge_path = generated_paths(velocity_mode, velocity_scale)
     use_expansion = float(H0) > 0.0
