@@ -116,6 +116,7 @@ def run_single_experiment(overrides: dict[str, Any] | None = None) -> dict[str, 
     cfg["experiment_started_at"] = experiment_started_at
     cfg["experiment_finished_at"] = now_iso()
     cfg["command"] = sys.argv
+    cfg["initial_condition_adjustments"] = result.get("initial_condition_adjustments", {})
     if cfg.get("SAVE_SUMMARY", True):
         export_summary_json(output_dir / "summary.json", cfg, result["metrics"], len(ids))
         write_json(output_dir / "experiment_manifest.json", {
@@ -134,6 +135,15 @@ def run_single_experiment(overrides: dict[str, Any] | None = None) -> dict[str, 
             "expansion_model": cfg.get("EXPANSION_MODEL"),
             "H0": cfg.get("H0"),
             "softening": cfg.get("SOFTENING"),
+            "use_virial_velocity_scaling": cfg.get("USE_VIRIAL_VELOCITY_SCALING"),
+            "target_virial_ratio": cfg.get("TARGET_VIRIAL_RATIO"),
+            "use_adaptive_softening": cfg.get("USE_ADAPTIVE_SOFTENING"),
+            "adaptive_softening_mode": cfg.get("ADAPTIVE_SOFTENING_MODE"),
+            "adaptive_softening_k": cfg.get("ADAPTIVE_SOFTENING_K"),
+            "adaptive_softening_min": cfg.get("ADAPTIVE_SOFTENING_MIN"),
+            "adaptive_softening_max": cfg.get("ADAPTIVE_SOFTENING_MAX"),
+            "adaptive_softening_update_every": cfg.get("ADAPTIVE_SOFTENING_UPDATE_EVERY"),
+            "initial_condition_adjustments": cfg.get("initial_condition_adjustments"),
             "dt": cfg.get("DT"),
             "connection_velocity_mode": cfg.get("CONNECTION_VELOCITY_MODE"),
             "connection_velocity_scale": cfg.get("CONNECTION_VELOCITY_SCALE"),
@@ -216,6 +226,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--H0", type=float, default=None)
     parser.add_argument("--softening", type=float, default=None)
     parser.add_argument("--theta", type=float, default=None, help="Barnes-Hut theta")
+    parser.add_argument("--virial", action="store_true", help="Enable virialized initial velocity scaling.")
+    parser.add_argument("--target-virial-ratio", type=float, default=None, help="Target Q = 2K/|U| for virial velocity scaling.")
+    parser.add_argument("--adaptive-softening", action="store_true", help="Enable adaptive gravitational softening.")
+    parser.add_argument("--adaptive-softening-mode", choices=["density_boost", "nearest_neighbor"], default=None)
+    parser.add_argument("--adaptive-softening-k", type=float, default=None)
+    parser.add_argument("--adaptive-softening-min", type=float, default=None)
+    parser.add_argument("--adaptive-softening-max", type=float, default=None)
+    parser.add_argument("--adaptive-softening-update-every", type=int, default=None)
     return parser.parse_args()
 
 
@@ -246,6 +264,22 @@ def main() -> None:
         overrides["SOFTENING"] = args.softening
     if args.theta is not None:
         overrides["BARNES_HUT_THETA"] = args.theta
+    if args.virial:
+        overrides["USE_VIRIAL_VELOCITY_SCALING"] = True
+    if args.target_virial_ratio is not None:
+        overrides["TARGET_VIRIAL_RATIO"] = args.target_virial_ratio
+    if args.adaptive_softening:
+        overrides["USE_ADAPTIVE_SOFTENING"] = True
+    if args.adaptive_softening_mode is not None:
+        overrides["ADAPTIVE_SOFTENING_MODE"] = args.adaptive_softening_mode
+    if args.adaptive_softening_k is not None:
+        overrides["ADAPTIVE_SOFTENING_K"] = args.adaptive_softening_k
+    if args.adaptive_softening_min is not None:
+        overrides["ADAPTIVE_SOFTENING_MIN"] = args.adaptive_softening_min
+    if args.adaptive_softening_max is not None:
+        overrides["ADAPTIVE_SOFTENING_MAX"] = args.adaptive_softening_max
+    if args.adaptive_softening_update_every is not None:
+        overrides["ADAPTIVE_SOFTENING_UPDATE_EVERY"] = args.adaptive_softening_update_every
 
     run_single_experiment(overrides)
 

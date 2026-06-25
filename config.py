@@ -54,6 +54,32 @@ STEPS = 3000
 SAVE_EVERY = 3
 SOFTENING = 2.0
 
+
+# -----------------------------------------------------------------------------
+# Experimental collapse-prevention controls
+# -----------------------------------------------------------------------------
+# Virialized initial velocity scaling rescales the initial velocity field so the
+# system starts closer to a target virial ratio Q = 2K/|U|. This keeps the
+# existing velocity directions, including connection-based angular velocities,
+# but changes their magnitude.
+USE_VIRIAL_VELOCITY_SCALING = False
+TARGET_VIRIAL_RATIO = 1.0
+VIRIAL_POTENTIAL_MAX_N = 5000
+VIRIAL_POTENTIAL_SAMPLE_PAIRS = 200000
+VIRIAL_VELOCITY_SCALE_MIN = 0.1
+VIRIAL_VELOCITY_SCALE_MAX = 10.0
+VIRIAL_RANDOM_SEED = RANDOM_SEED
+
+# Adaptive softening makes the softening length larger in locally dense regions.
+# It is disabled by default because it is an experimental extension.
+USE_ADAPTIVE_SOFTENING = False
+ADAPTIVE_SOFTENING_MODE = "density_boost"  # density_boost or nearest_neighbor
+ADAPTIVE_SOFTENING_K = 1.0
+ADAPTIVE_SOFTENING_MIN = 0.5
+ADAPTIVE_SOFTENING_MAX = 30.0
+ADAPTIVE_SOFTENING_UPDATE_EVERY = 10
+ADAPTIVE_SOFTENING_BLOCK_SIZE = 512
+
 # -----------------------------------------------------------------------------
 # Simulation mode
 # -----------------------------------------------------------------------------
@@ -204,7 +230,14 @@ def as_dict() -> dict:
         "PROJECT_ROOT", "DATA_DIR", "GENERATED_DATA_DIR", "OUTPUT_ROOT", "RUNS_DIR",
         "USE_TIMESTAMPED_RUN_DIRS", "RUN_ID", "RUN_OUTPUT_ROOT", "RUN_STARTED_AT", "RUN_NOTES",
         "RAW_CSV_PATH", "CSV_PATH", "EDGE_CSV_PATH", "MAX_PARTICLES", "RANDOM_SEED", "G", "DT",
-        "STEPS", "SAVE_EVERY", "SOFTENING", "SIMULATION_MODE", "EXPERIMENT_NAME",
+        "STEPS", "SAVE_EVERY", "SOFTENING",
+        "USE_VIRIAL_VELOCITY_SCALING", "TARGET_VIRIAL_RATIO",
+        "VIRIAL_POTENTIAL_MAX_N", "VIRIAL_POTENTIAL_SAMPLE_PAIRS",
+        "VIRIAL_VELOCITY_SCALE_MIN", "VIRIAL_VELOCITY_SCALE_MAX", "VIRIAL_RANDOM_SEED",
+        "USE_ADAPTIVE_SOFTENING", "ADAPTIVE_SOFTENING_MODE", "ADAPTIVE_SOFTENING_K",
+        "ADAPTIVE_SOFTENING_MIN", "ADAPTIVE_SOFTENING_MAX",
+        "ADAPTIVE_SOFTENING_UPDATE_EVERY", "ADAPTIVE_SOFTENING_BLOCK_SIZE",
+        "SIMULATION_MODE", "EXPERIMENT_NAME",
         "FORCE_SOLVER", "USE_EXPANSION", "EXPANSION_MODEL", "H0",
         "CONNECTION_VELOCITY_MODE", "CONNECTION_VELOCITY_SCALE",
         "USE_CONNECTION_MASS_STRENGTH", "BARNES_HUT_THETA",

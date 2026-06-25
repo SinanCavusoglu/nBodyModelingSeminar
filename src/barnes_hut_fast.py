@@ -197,17 +197,23 @@ if NUMBA_AVAILABLE:
         G: float,
         softening: float,
         theta: float,
+        softening_values: np.ndarray,
+        use_adaptive_softening: bool,
     ) -> np.ndarray:
         n = pos.shape[0]
         node_count = centers.shape[0]
         acc = np.zeros((n, 3), dtype=np.float64)
-        eps2 = softening * softening
+        scalar_eps2 = softening * softening
         theta = max(theta, 1.0e-12)
 
         for i in prange(n):
             px = pos[i, 0]
             py = pos[i, 1]
             pz = pos[i, 2]
+            if use_adaptive_softening:
+                soft_i2 = softening_values[i] * softening_values[i]
+            else:
+                soft_i2 = scalar_eps2
 
             stack = np.empty(max(node_count, 1), dtype=np.int64)
             top = 0
@@ -235,6 +241,11 @@ if NUMBA_AVAILABLE:
                         dx = pos[j, 0] - px
                         dy = pos[j, 1] - py
                         dz = pos[j, 2] - pz
+                        if use_adaptive_softening:
+                            soft_j = softening_values[j]
+                            eps2 = 0.5 * (soft_i2 + soft_j * soft_j)
+                        else:
+                            eps2 = scalar_eps2
                         dist2 = dx * dx + dy * dy + dz * dz + eps2
                         inv_dist3 = 1.0 / (dist2 * np.sqrt(dist2))
                         weight = G * mass[j] * inv_dist3
@@ -260,6 +271,10 @@ if NUMBA_AVAILABLE:
                 dist = np.sqrt(dist2_noeps)
 
                 if (not inside) and dist > 0.0 and ((2.0 * hs) / dist) < theta:
+                    if use_adaptive_softening:
+                        eps2 = soft_i2
+                    else:
+                        eps2 = scalar_eps2
                     dist2 = dist2_noeps + eps2
                     inv_dist3 = 1.0 / (dist2 * np.sqrt(dist2))
                     weight = G * tm * inv_dist3
@@ -290,15 +305,20 @@ def _accelerations_python(
     G: float,
     softening: float,
     theta: float,
+    softening_values: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     n = len(pos)
     acc = np.zeros_like(pos, dtype=np.float64)
-    eps2 = softening * softening
+    scalar_eps2 = softening * softening
+    adaptive = softening_values is not None
+    if adaptive:
+        softening_values = np.asarray(softening_values, dtype=np.float64)
     if tree.node_count == 0:
         return acc
 
     for i in range(n):
         p = pos[i]
+        soft_i2 = float(softening_values[i] ** 2) if adaptive else scalar_eps2
         stack = [0]
         while stack:
             node_id = stack.pop()
@@ -310,12 +330,17 @@ def _accelerations_python(
             if leaf_count > 0:
                 start = int(tree.leaf_starts[node_id])
                 for j in tree.leaf_indices[start:start + leaf_count]:
-                    if int(j) == i:
+                    jj = int(j)
+                    if jj == i:
                         continue
-                    diff = pos[int(j)] - p
+                    diff = pos[jj] - p
+                    if adaptive:
+                        eps2 = 0.5 * (soft_i2 + float(softening_values[jj] ** 2))
+                    else:
+                        eps2 = scalar_eps2
                     dist2 = float(np.dot(diff, diff) + eps2)
                     if dist2 > 0.0:
-                        acc[i] += G * mass[int(j)] * diff / (dist2 ** 1.5)
+                        acc[i] += G * mass[jj] * diff / (dist2 ** 1.5)
                 continue
 
             center = tree.centers[node_id]
@@ -324,6 +349,7 @@ def _accelerations_python(
             diff = tree.centers_of_mass[node_id] - p
             dist = float(np.linalg.norm(diff))
             if (not inside) and dist > 0.0 and ((2.0 * hs) / dist) < theta:
+                eps2 = soft_i2 if adaptive else scalar_eps2
                 dist2 = float(np.dot(diff, diff) + eps2)
                 acc[i] += G * tm * diff / (dist2 ** 1.5)
             else:
@@ -344,6 +370,7 @@ def compute_barnes_hut_fast_accelerations(
     max_depth: int = 32,
     use_numba: bool = True,
     direct_fallback_n: Optional[int] = None,
+    softening_values: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Compute Barnes-Hut accelerations with a flat octree.
 
@@ -361,10 +388,22 @@ def compute_barnes_hut_fast_accelerations(
     if n == 0:
         return np.zeros((0, 3), dtype=np.float64)
 
+    if softening_values is not None:
+        softening_values = np.asarray(softening_values, dtype=np.float64)
+        if len(softening_values) != n:
+            raise ValueError("softening_values must have the same length as pos")
+        use_adaptive_softening = True
+    else:
+        softening_values = np.full(n, float(softening), dtype=np.float64)
+        use_adaptive_softening = False
+
     if direct_fallback_n is not None and direct_fallback_n >= 0 and n <= int(direct_fallback_n):
         from .physics import compute_direct_softened_accelerations
 
-        return compute_direct_softened_accelerations(pos, mass, G, softening)
+        return compute_direct_softened_accelerations(
+            pos, mass, G, softening,
+            softening_values=softening_values if use_adaptive_softening else None,
+        )
 
     tree = build_flat_octree(
         pos,
@@ -388,6 +427,11 @@ def compute_barnes_hut_fast_accelerations(
             float(G),
             float(softening),
             float(theta),
+            softening_values,
+            use_adaptive_softening,
         )
 
-    return _accelerations_python(pos, mass, tree, float(G), float(softening), float(theta))
+    return _accelerations_python(
+        pos, mass, tree, float(G), float(softening), float(theta),
+        softening_values=softening_values if use_adaptive_softening else None,
+    )
